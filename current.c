@@ -35,7 +35,7 @@ volatile uint8_t messungcounter;
 
 #define ANZAHLWERTE                 8 // Anzahl Werte fuer Mittelwertbildung
 
-#define ANZAHLPAKETE                4 // Anzahl Pakete bis zur Uebertragung
+#define ANZAHLPAKETE                8 // Anzahl Pakete bis zur Uebertragung
 
 
 // Impulszaehler
@@ -55,7 +55,7 @@ volatile static uint32_t anzahlimpulsmittelwert=0;
 
 #define SENDINTERVALLCOUNT 20 // 20s
 
-#define SENDINTERVALL 1* SENDINTERVALLCOUNT//
+#define SENDINTERVALL 5* SENDINTERVALLCOUNT//
 
 
 // mittelwerte aufsummiert

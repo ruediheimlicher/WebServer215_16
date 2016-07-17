@@ -142,12 +142,14 @@ void init_ip_arp_udp_tcp(uint8_t *mymac,uint8_t *myip,uint16_t port){
 	uint8_t i=0;
 	wwwport_h=(port>>8)&0xff;
 	wwwport_l=(port&0xff);
-	while(i<4){
+	while(i<4)
+   {
 		ipaddr[i]=myip[i];
 		i++;
 	}
 	i=0;
-	while(i<6){
+	while(i<6)
+   {
 		macaddr[i]=mymac[i];
 		i++;
 	}
@@ -156,8 +158,10 @@ void init_ip_arp_udp_tcp(uint8_t *mymac,uint8_t *myip,uint16_t port){
 uint8_t check_ip_message_is_from(uint8_t *buf,uint8_t *ip)
 {
 	uint8_t i=0;
-	while(i<4){
-		if(buf[IP_SRC_P+i]!=ip[i]){
+	while(i<4)
+   {
+		if(buf[IP_SRC_P+i]!=ip[i])
+      {
 			return(0);
 		}
 		i++;
@@ -199,7 +203,8 @@ uint8_t eth_type_is_ip_and_my_ip(uint8_t *buf,uint16_t len){
 		return(0);
 	}
 	while(i<4){
-		if(buf[IP_DST_P+i]!=ipaddr[i]){
+		if(buf[IP_DST_P+i]!=ipaddr[i])  // IP_DST_P 0x1e
+      {
 			return(0);
 		}
 		i++;
@@ -238,7 +243,7 @@ void make_ip(uint8_t *buf)
 {
 	uint8_t i=0;
 	while(i<4){
-		buf[IP_DST_P+i]=buf[IP_SRC_P+i];
+		buf[IP_DST_P+i]=buf[IP_SRC_P+i];  // IP_DST_P 0x1e
 		buf[IP_SRC_P+i]=ipaddr[i];
 		i++;
 	}
@@ -589,7 +594,7 @@ void client_icmp_request(uint8_t *buf,uint8_t *destip)
 	buf[IP_PROTO_P]=IP_PROTO_UDP_V;
 	i=0;
 	while(i<4){
-		buf[IP_DST_P+i]=destip[i];
+		buf[IP_DST_P+i]=destip[i];  // IP_DST_P 0x1e
 		buf[IP_SRC_P+i]=ipaddr[i];
 		i++;
 	}
@@ -641,7 +646,7 @@ void client_ntp_request(uint8_t *buf,uint8_t *ntpip,uint8_t srcport)
 	buf[IP_PROTO_P]=IP_PROTO_UDP_V;
 	i=0;
 	while(i<4){
-		buf[IP_DST_P+i]=ntpip[i];
+		buf[IP_DST_P+i]=ntpip[i];  // IP_DST_P 0x1e
 		buf[IP_SRC_P+i]=ipaddr[i];
 		i++;
 	}
@@ -715,7 +720,7 @@ void send_wol(uint8_t *buf,uint8_t *wolmac)
 	i=0;
 	while(i<4){
 		buf[IP_SRC_P+i]=ipaddr[i];
-		buf[IP_DST_P+i]=0xff;
+		buf[IP_DST_P+i]=0xff;   // IP_DST_P 0x1e
 		i++;
 	}
 	fill_ip_hdr_checksum(buf);
@@ -841,7 +846,7 @@ void client_syn(uint8_t *buf,uint8_t srcport,uint8_t dstport_h,uint8_t dstport_l
 	buf[IP_PROTO_P]=IP_PROTO_TCP_V;
 	i=0;
 	while(i<4){
-		buf[IP_DST_P+i]=wwwip[i];
+		buf[IP_DST_P+i]=wwwip[i];  // IP_DST_P 0x1e
 		buf[IP_SRC_P+i]=ipaddr[i];
 		i++;
 	}

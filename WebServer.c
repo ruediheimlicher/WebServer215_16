@@ -13,6 +13,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <avr/pgmspace.h>
+
+
+
 #include "ip_arp_udp_tcp.c"
 #include "websrv_help_functions.c"
 #include "enc28j60.h"
@@ -27,11 +30,17 @@
 #include "datum.c"
 #include "version.c"
 #include "homedata.c"
+
+#include "eepromhelper.c"
 //***********************************
 //									*
 //									*
 //***********************************
 //
+#include "usbdrv.h"
+#include "usbdrv.c"
+
+#include "oddebug.h"
 
 //									*
 //***********************************
@@ -78,8 +87,8 @@
 volatile uint16_t EventCounter=0;
 static char baseurl[]="http://ruediheimlichercurrent.dyndns.org/";
 
-
-
+static void usbPoll(void);
+static inline usbMsgLen_t usbDriverDescriptor(usbRequest_t *rq);
 /* *************************************************************************  */
 /* Eigene Deklarationen                                                       */
 /* *************************************************************************  */
@@ -161,6 +170,11 @@ uint8_t WochentagLesen(unsigned char ADRESSE, uint8_t hByte, uint8_t lByte, uint
 uint8_t SlavedatenLesen(const unsigned char ADRESSE, uint8_t *Daten);
 void lcd_put_tempAbMinus20(uint16_t temperatur);
 
+
+const char PROGMEM pfeilvollrechts[]={0x00,0x00,0x7F,0x3E,0x1C,0x08};
+volatile uint8_t                 curr_model=0; // aktuelles modell
+uint8_t              EEMEM       speichermodel=0;
+
 /* ************************************************************************ */
 /* Ende Eigene Deklarationen																 */
 /* ************************************************************************ */
@@ -193,8 +207,16 @@ static uint8_t myip[4] = {192,168,1,215};
 
 //static uint8_t websrvip[4] = {193,17,85,42}; // ruediheimlicher nine
 //static uint8_t websrvip[4] = {64,37,49,112}; // 64.37.49.112   28.02.2015 hostswiss // Pfade in .pl angepasst: cgi-bin neu in root dir
+
+// **************************************************
+// **************************************************
+// Anpassen bei Aenderung:
+
 static uint8_t websrvip[4] = {217,26,52,16};//        217.26.52.16  24.03.2015 hostpoint
 
+
+// **************************************************
+// **************************************************
 // The name of the virtual host which you want to contact at websrvip (hostname of the first portion of the URL):
 
 
@@ -341,8 +363,8 @@ ISR(TIMER0_OVF_vect)
       OSZITOGG;
       sekundencounter++;
       timer0counter=0;
-     // lcd_gotoxy(15,0);
-     // lcd_putint(timer0counter);
+      //lcd_gotoxy(15,0);
+      //lcd_putint(timer0counter);
    }
    PORTD |= (1<<ANALOGPIN);
 }
@@ -366,13 +388,20 @@ void ping_callback(uint8_t *ip)
         //			lcd_gotoxy(12,0);
         //			lcd_puts("ping\0");
         // save IP from where the ping came:
-       /*
+       lcd_gotoxy(0,2);
+       
         while(i<4)
         {
-            pingsrcip[i]=ip[i];
+           pingsrcip[i]=ip[i];
+           lcd_putint(pingsrcip[i]);
+           if (i<3)
+           {
+              lcd_putc('.');
+           }
             i++;
         }
-        */
+       
+       
     }
 }
 
@@ -381,12 +410,12 @@ void strom_browserresult_callback(uint8_t statuscode,uint16_t datapos)
    // datapos is not used in this example
    if (statuscode==0)
    {
-      /*
-         lcd_gotoxy(12,0);
-         lcd_puts("        \0");
-         lcd_gotoxy(12,0);
-         lcd_puts("s cb OK\0");
-       */
+      
+         lcd_gotoxy(12,3);
+         lcd_puts("           \0");
+         lcd_gotoxy(12,3);
+         lcd_puts("s cb OK \0");
+      
      // lcd_gotoxy(19,0);
      // lcd_putc(' ');
       lcd_gotoxy(19,0);
@@ -408,18 +437,17 @@ void strom_browserresult_callback(uint8_t statuscode,uint16_t datapos)
    }
    else
    {
-      /*
-         lcd_gotoxy(0,1);
-         lcd_puts("        \0");
-         lcd_gotoxy(0,1);
-         lcd_puts("s cb err\0");
-         lcd_puthex(statuscode);
-       */
+      
+      lcd_gotoxy(0,3);
+      lcd_puts("           \0");
+      lcd_gotoxy(0,3);
+      lcd_puts("s cb err \0");
+      lcd_puthex(statuscode);
+      
       lcd_gotoxy(19,0);
       lcd_putc(' ');
       lcd_gotoxy(19,0);
       lcd_putc('-');
-      
    }
 }
 
@@ -428,12 +456,10 @@ void home_browserresult_callback(uint8_t statuscode,uint16_t datapos)
     // datapos is not used in this example
     if (statuscode==0)
     {
-        
         lcd_gotoxy(0,0);
         lcd_puts("        \0");
         lcd_gotoxy(0,0);
         lcd_puts("h cb OK\0");
-        
         web_client_sendok++;
         //				sei();
         
@@ -643,6 +669,25 @@ void tempAbMinus20(uint16_t temperatur,char*tempbuffer)
  return(i);
  }
  */
+#pragma mark eeprom
+// http://www.nongnu.org/avr-libc/user-manual/group__avr__eeprom.html
+
+void write_eeprom_wsrvip(uint8_t * ipArray)
+{
+   eeprom_write_byte(&speichermodel, curr_model);
+   
+}
+
+void read_eeprom_swsrvip(uint8_t* ipStart)
+{
+   // https://www.mikrocontroller.net/topic/161881
+   uint8_t addr0  = eeprom_read_byte((uint8_t*)ipStart);
+   
+   // readBlock
+   uint8_t ipString[4];
+   eeprom_read_block((void*)&ipString, (const void*)ipStart, 4);
+}
+
 
 
 #pragma mark analye_get_url
@@ -1161,14 +1206,15 @@ int main(void)
    sei();
    lcd_clr_line(0);
    while(1)
-	{
+   {
       //n = rand() % 100 + 1;
-		sei();
-		//Blinkanzeige
-		loopcount0++;
-		if (loopcount0>=0x0FFF)
-		{
-			loopcount0=0;
+      sei();
+      //      usbPoll();
+      //Blinkanzeige
+      loopcount0++;
+      if (loopcount0>=0x0FFF)
+      {
+         loopcount0=0;
          
          if (webstatus & (1<<DATAPEND)&& loopcount1 > 6) // callback simulieren
          {
@@ -1190,36 +1236,36 @@ int main(void)
          }
          
          
-			
-			if (loopcount1 >= 0x040)
-			{
-				
-				loopcount1 = 0;
-				//OSZITOGG;
-				LOOPLEDPORT ^= (1<<SENDLED);           // TWILED setzen, Warnung
-//				webstatus |= (1<<DATALOOP);
+         
+         if (loopcount1 >= 0x040)
+         {
+            
+            loopcount1 = 0;
+            //OSZITOGG;
+            LOOPLEDPORT ^= (1<<SENDLED);           // TWILED setzen, Warnung
+            //				webstatus |= (1<<DATALOOP);
             //TWBR=0;
-				//lcdinit();
+            //lcdinit();
             //lcd_gotoxy(0,0);
             //lcd_putc('a');
-
-			}
-			else
-			{
+            
+         }
+         else
+         {
             loopcount1++;
             if (loopcount1 == 20)
             {
                //lcd_gotoxy(16,1);
                //lcd_putc(' ');
             }
-				
-				
-			}
-			LOOPLEDPORT ^=(1<<LOOPLED);
-		}
-		
-		//**	Beginn Current-Routinen	***********************
-		
+            
+            
+         }
+         LOOPLEDPORT ^=(1<<LOOPLED);
+      }
+      
+      //**	Beginn Current-Routinen	***********************
+      
       if (currentstatus & (1<<IMPULSBIT)) // neuer Impuls angekommen, Zaehlung lauft
       {
          PORTD |=(1<<ECHOPIN);
@@ -1250,7 +1296,7 @@ int main(void)
                
                //lcd_gotoxy(19,1);
                //lcd_putc('f');
-            
+               
             }
             
          }
@@ -1258,17 +1304,17 @@ int main(void)
          char filterstromstring[8];
          filtercount++;
          /*
-         lcd_gotoxy(0,0);
-         lcd_putint16(impulszeit/100);
-         lcd_gotoxy(10,0);
-         lcd_putint16(filtermittelwert/100);
-         lcd_gotoxy(10,1);
-         lcd_putint(filtercount);
-         lcd_putc('*');
-         
-         dtostrf(filtermittelwert,5,1,filterstromstring);
-         //lcd_puts(filterstromstring);
-         */
+          lcd_gotoxy(0,0);
+          lcd_putint16(impulszeit/100);
+          lcd_gotoxy(10,0);
+          lcd_putint16(filtermittelwert/100);
+          lcd_gotoxy(10,1);
+          lcd_putint(filtercount);
+          lcd_putc('*');
+          
+          dtostrf(filtermittelwert,5,1,filterstromstring);
+          //lcd_puts(filterstromstring);
+          */
          
          if (filtercount & (filterfaktor == 0)) // Wert anzeigen
          {
@@ -1302,18 +1348,18 @@ int main(void)
             //lcd_gotoxy(0,0);
             //lcd_puts("  \0");
             /*
-            if ((paketcounter & 1)==0)
-            {
-               lcd_gotoxy(8,1);
-               lcd_putc(':');
-               
-            }
-            else
-            {
-               lcd_gotoxy(8,1);
-               lcd_putc(' ');
-            }
-            */
+             if ((paketcounter & 1)==0)
+             {
+             lcd_gotoxy(8,1);
+             lcd_putc(':');
+             
+             }
+             else
+             {
+             lcd_gotoxy(8,1);
+             lcd_putc(' ');
+             }
+             */
             //lcd_gotoxy(0,0);
             //lcd_putint2(paketcounter);
             
@@ -1344,10 +1390,10 @@ int main(void)
             lcd_putc('*');
             
             
-           // lcd_gotoxy(5,0);
-           // lcd_putint(sendintervallzeit);
-           // lcd_putc('$');
-
+            // lcd_gotoxy(5,0);
+            // lcd_putint(sendintervallzeit);
+            // lcd_putc('$');
+            
             /*
              Impulsdauer: impulsmittelwert * TIMERIMPULSDAUER (10us)
              Umrechnung auf ms: /1000
@@ -1362,15 +1408,15 @@ int main(void)
             {
                leistung = 360.0/impulsmittelwert*100000.0;// 480us
                
-              // webleistung = (uint32_t)360.0/impulsmittelwert*1000000.0;
-              webleistung = (uint32_t)360.0/impulsmittelwert*100000.0;
+               // webleistung = (uint32_t)360.0/impulsmittelwert*1000000.0;
+               webleistung = (uint32_t)360.0/impulsmittelwert*100000.0;
                
                
                lcd_gotoxy(0,1);
                lcd_putint16(webleistung);
                lcd_putc('*');
             }
-
+            
             //     Stromzaehler
             
             wattstunden = impulscount/10; // 310us
@@ -1378,7 +1424,7 @@ int main(void)
             
             //OSZILO;
             /*
-            // ganze Anzeige 55 ms
+             // ganze Anzeige 55 ms
              lcd_gotoxy(9,1);
              lcd_putint(wattstunden/1000);
              lcd_putc('.');
@@ -1386,12 +1432,12 @@ int main(void)
              lcd_putc('W');
              lcd_putc('h');
              */
-             //OSZIHI;
-             
+            //OSZIHI;
+            
             
             // dtostrf(leistung,5,0,stromstring); // fuehrt zu 'strom=++123' in URL fuer strom.pl. Funktionierte trotzdem
             
-   //         dtostrf(leistung,5,1,stromstring); // 800us
+            //         dtostrf(leistung,5,1,stromstring); // 800us
             
             
             //lcd_gotoxy(0,0);
@@ -1403,7 +1449,7 @@ int main(void)
             {
                
                //lcd_puts("     \0");
-          
+               
                //lcd_gotoxy(2,0);
                //lcd_puts(stromstring);
                //lcd_putc(' ');
@@ -1441,18 +1487,18 @@ int main(void)
             {
                
                webstatus &= ~(1<<DATALOOP);
- 
+               
                //uint16_t zufall = rand() % 0x0F + 1;;
                
                //lcd_putc(' ');
                //lcd_putint12(zufall);
                //leistung += zufall;
-
+               
                
                
                //dtostrf(leistung,5,1,stromstring); // 800us
                dtostrf(webleistung,10,0,stromstring); // 800us
-
+               
                
                paketcounter=0;
                
@@ -1475,14 +1521,14 @@ int main(void)
                   //OSZILO;
                   
                   
-                   lcd_gotoxy(9,1);
-                   lcd_putint(wattstunden/1000);
-                   lcd_putc('.');
-                   lcd_putint3(wattstunden);
-                   lcd_putc('W');
-                   lcd_putc('h');
-                   
-                   //OSZIHI;
+                  lcd_gotoxy(9,1);
+                  lcd_putint(wattstunden/1000);
+                  lcd_putc('.');
+                  lcd_putint3(wattstunden);
+                  lcd_putc('W');
+                  lcd_putc('h');
+                  
+                  //OSZIHI;
                }
                
                if (!(webstatus & (1<<DATAPEND))) // wartet nicht auf callback
@@ -1493,11 +1539,11 @@ int main(void)
                   
                   strcpy(CurrentDataString,key1);
                   strcat(CurrentDataString,sstr);
- 
+                  
                   strcat(CurrentDataString,"&strom=\0");
                   char webstromstring[16]={};
                   
-            //      urlencode(stromstring,webstromstring);
+                  //      urlencode(stromstring,webstromstring);
                   
                   strcpy(webstromstring,stromstring);
                   //lcd_gotoxy(0,0);
@@ -1505,23 +1551,23 @@ int main(void)
                   //lcd_putc('-');
                   //lcd_puts(webstromstring);
                   //lcd_putc('-');
-                 
+                  
                   char* tempstromstring = (char*)trimwhitespace(webstromstring);
                   //lcd_puts(tempstromstring);
                   //lcd_putc('$');
-
+                  
                   //strcat(CurrentDataString,stromstring);
                   strcat(CurrentDataString,tempstromstring);
                   
                   /*
                    // kontolle
-                  char substr[20];
-                  uint8_t l=strlen(CurrentDataString);
-                  strncpy(substr, CurrentDataString+8, (l));
-                  lcd_gotoxy(0,1);
-                  lcd_puts(substr);
-                  _delay_ms(10);
-                  */
+                   char substr[20];
+                   uint8_t l=strlen(CurrentDataString);
+                   strncpy(substr, CurrentDataString+8, (l));
+                   lcd_gotoxy(0,1);
+                   lcd_puts(substr);
+                   _delay_ms(10);
+                   */
                }
                
                
@@ -1548,7 +1594,7 @@ int main(void)
             
             anzeigewert = leistung /0x18;
             
-           // if (TEST)
+            // if (TEST)
             {
                lcd_gotoxy(9,0);
                lcd_putint(anzeigewert);
@@ -1570,32 +1616,32 @@ int main(void)
          
          
       }
-		//**    End Current-Routinen*************************
-		
-		
-		if (sendWebCount >2)
-		{
-			//start_web_client=1;
-			sendWebCount=0;
-		}
+      //**    End Current-Routinen*************************
+      
+      
+      if (sendWebCount >2)
+      {
+         //start_web_client=1;
+         sendWebCount=0;
+      }
       
       webstatus |= (1<<DATASEND);
       
       // strom busy?
-		if (webstatus & (1<<DATASEND))
-		{
+      if (webstatus & (1<<DATASEND))
+      {
 #pragma mark packetloop
-          
-			// **	Beginn Ethernet-Routinen	***********************
-			
-			// handle ping and wait for a tcp packet
-			
+         
+         // **	Beginn Ethernet-Routinen	***********************
+         
+         // handle ping and wait for a tcp packet
+         
          //cli();
-			
-			dat_p=packetloop_icmp_tcp(buf,enc28j60PacketReceive(BUFFER_SIZE, buf));
-			//dat_p=1;
-			
-			if(dat_p==0) // Kein Aufruf, eigene Daten senden an Homeserver
+         
+         dat_p=packetloop_icmp_tcp(buf,enc28j60PacketReceive(BUFFER_SIZE, buf));
+         //dat_p=1;
+         
+         if(dat_p==0) // Kein Aufruf, eigene Daten senden an Homeserver
          {
             
             if ((start_web_client==1)) // In Ping_Calback gesetzt: Ping erhalten
@@ -1636,15 +1682,14 @@ int main(void)
                client_browse_url((char*)PSTR("/cgi-bin/strom.pl?"),CurrentDataString,(char*)PSTR(WEBSERVER_VHOST),&strom_browserresult_callback);
                
                sendWebCount++;
-               
+               lcd_gotoxy(0,3);
+               lcd_putint(sendWebCount);
                webstatus &= ~(1<<DATAOK); // client_browse nur einmal
                webstatus |= (1<<DATAPEND);
                
                lcd_gotoxy(19,0);
                lcd_putc('>');
                
-               // Daten senden
-               //www_server_reply(buf,dat_p); // send data
                
                //OSZIHI;
             }
@@ -1655,35 +1700,35 @@ int main(void)
          {
             
             
-           // lcd_gotoxy(5,1);
+            // lcd_gotoxy(5,1);
             //lcd_puts("dat_p\0");
-           // lcd_putint(cmd);
-
+            // lcd_putint(cmd);
+            
          }
-			
+         
          sei();
          
-			/*
-			 if (strncmp("GET ",(char *)&(buf[dat_p]),4)!=0)
-			 {
-			 // head, post and other methods:
-			 //
-			 // for possible status codes see:
-			 
-			 // http://www.w3.org/Protocols/rfc2616/rfc2616-sec10.html
-			 goto SENDTCP;
-			 }
-			 */
-			
-			
-			if (strncmp("/ ",(char *)&(buf[dat_p+4]),2)==0) // Slash am Ende der URL, Status-Seite senden
-			{
+         /*
+          if (strncmp("GET ",(char *)&(buf[dat_p]),4)!=0)
+          {
+          // head, post and other methods:
+          //
+          // for possible status codes see:
+          
+          // http://www.w3.org/Protocols/rfc2616/rfc2616-sec10.html
+          goto SENDTCP;
+          }
+          */
+         
+         
+         if (strncmp("/ ",(char *)&(buf[dat_p+4]),2)==0) // Slash am Ende der URL, Status-Seite senden
+         {
             lcd_gotoxy(0,0);
             lcd_puts("   \0");
             lcd_gotoxy(0,0);
             lcd_puts("+/+\0");
-				dat_p=http200ok(); // Header setzen
-				dat_p=fill_tcp_data_p(buf,0,PSTR("HTTP/1.0 200 OK\r\nContent-Type: text/html\r\n\r\n<h1>200 OK</h1>"));
+            dat_p=http200ok(); // Header setzen
+            dat_p=fill_tcp_data_p(buf,0,PSTR("HTTP/1.0 200 OK\r\nContent-Type: text/html\r\n\r\n<h1>200 OK</h1>"));
             if (TEST)
             {
                dat_p=fill_tcp_data_p(buf,dat_p,PSTR("<h1>HomeCurrent Test 200 OK</h1>"));
@@ -1692,68 +1737,68 @@ int main(void)
             {
                dat_p=fill_tcp_data_p(buf,dat_p,PSTR("<h1>HomeCurrent 200 OK</h1>"));
             }
-				dat_p=print_webpage_status(buf);
-				goto SENDTCP;
-			}
-			else
-			{
-				// Teil der URL mit Form xyz?uv=... analysieren
-				
-                                                                                 #pragma mark cmd
-				
-				//out_startdaten=DATATASK;	// default
-				
-				// out_daten setzen
-				cmd=analyse_get_url((char *)&(buf[dat_p+5]));
-				
-				//lcd_gotoxy(5,0);
-				//lcd_puts("cmd:\0");
-				//lcd_putint(cmd);
-				//lcd_putc(' ');
-				if (cmd == 1)
-				{
-					//dat_p = print_webpage_confirm(buf);
-				}
-				else if (cmd == 2)	// TWI > OFF
-				{
-                                                                                 #pragma mark cmd 2
-				}
-
+            dat_p=print_webpage_status(buf);
+            goto SENDTCP;
+         }
+         else
+         {
+            // Teil der URL mit Form xyz?uv=... analysieren
+            
+#pragma mark cmd
+            
+            //out_startdaten=DATATASK;	// default
+            
+            // out_daten setzen
+            cmd=analyse_get_url((char *)&(buf[dat_p+5]));
+            
+            //lcd_gotoxy(5,0);
+            //lcd_puts("cmd:\0");
+            //lcd_putint(cmd);
+            //lcd_putc(' ');
+            if (cmd == 1)
+            {
+               //dat_p = print_webpage_confirm(buf);
+            }
+            else if (cmd == 2)	// TWI > OFF
+            {
+#pragma mark cmd 2
+            }
+            
             else if (cmd == 25)	// Data lesen
             {
-                                                                                 #pragma mark cmd 25
+#pragma mark cmd 25
                dat_p=http200ok(); // Header setzen
                dat_p=fill_tcp_data_p(buf,0,PSTR("HTTP/1.0 200 OK\r\nContent-Type: text/html\r\n\r\n<h1>200 OK</h1>"));
                dat_p = print_webpage_data(buf,(void*)CurrentDataString); // pw=Pong&strom=1234
             }
-
-				else
-				{
-					dat_p=fill_tcp_data_p(buf,0,PSTR("HTTP/1.0 401 Unauthorized\r\nContent-Type: text/html\r\n\r\n<h1>401 Zugriff verweigert</h1>"));
-				}
-				cmd=0;
-				// Eingangsdaten reseten, sofern nicht ein Status0-Wait im Gang ist:
-				//if ((pendenzstatus & (1<<SEND_STATUS0_BIT)))
-				{
-					
-				}
-				
-				goto SENDTCP;
-			}
-			//
+            
+            else
+            {
+               dat_p=fill_tcp_data_p(buf,0,PSTR("HTTP/1.0 401 Unauthorized\r\nContent-Type: text/html\r\n\r\n<h1>401 Zugriff verweigert</h1>"));
+            }
+            cmd=0;
+            // Eingangsdaten reseten, sofern nicht ein Status0-Wait im Gang ist:
+            //if ((pendenzstatus & (1<<SEND_STATUS0_BIT)))
+            {
+               
+            }
+            
+            goto SENDTCP;
+         }
+         //
          
-		SENDTCP:
+      SENDTCP:
          //OSZIHI;
          www_server_reply(buf,dat_p); // send data
-			
-			
-		} // strom not busy
+         
+         
+      } // strom not busy
       else
       {
          lcd_gotoxy(5,0);
          lcd_puts("busy\0");
-
+         
       }
-	}
+   }
 	return (0);
 }

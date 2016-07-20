@@ -8,11 +8,17 @@
  * Chip type           : Atmega88 or Atmega168 or Atmega328 with ENC28J60
  * Note: there is a version number in the text. Search for tuxgraphics
  *********************************************/
+
 #include <avr/io.h>
 #include <avr/interrupt.h>
 #include <stdlib.h>
 #include <string.h>
 #include <avr/pgmspace.h>
+//#include <sys/types.h>
+
+//#include <netinet/in_systm.h>
+//#include <netdb.h>
+
 
 
 
@@ -104,7 +110,7 @@ static uint8_t monitoredhost[4] = {10,0,0,7};
 
 static char CurrentDataString[64];
 
-static char* teststring = "pw=Pong&strom=360\0";
+static char* teststring = "pw=Pong&strom0=360\0";
 
 volatile uint8_t oldErrCounter=0;
 
@@ -170,6 +176,8 @@ uint8_t WochentagLesen(unsigned char ADRESSE, uint8_t hByte, uint8_t lByte, uint
 uint8_t SlavedatenLesen(const unsigned char ADRESSE, uint8_t *Daten);
 void lcd_put_tempAbMinus20(uint16_t temperatur);
 
+// hostip-Stuff
+volatile uint8_t hostip[4];
 
 const char PROGMEM pfeilvollrechts[]={0x00,0x00,0x7F,0x3E,0x1C,0x08};
 volatile uint8_t                 curr_model=0; // aktuelles modell
@@ -212,7 +220,8 @@ static uint8_t myip[4] = {192,168,1,215};
 // **************************************************
 // Anpassen bei Aenderung:
 
-static uint8_t websrvip[4] = {217,26,52,16};//        217.26.52.16  24.03.2015 hostpoint
+//static uint8_t websrvip[4] = {217,26,52,16};//        217.26.52.16  24.03.2015 hostpoint
+static uint8_t websrvip[4] = {217,26,53,231};//        217.26.53.231  18.07.2016 hostpoint
 
 
 // **************************************************
@@ -730,11 +739,8 @@ uint8_t analyse_get_url(char *str)	// codesnippet von Watchdog
 			// Passwort kontrollieren
 			if (verify_password(actionbuf))
 			{
-				if (find_key_val(str,actionbuf,10,"data"))
-				{
-					return(16);
-				}
-			}
+ 			}
+         
 		}
         
 		return(0);
@@ -744,21 +750,50 @@ uint8_t analyse_get_url(char *str)	// codesnippet von Watchdog
 	if (strncmp("twi",str,3)==0)										//	Daten von HC beginnen mit "twi"	
    {
       //lcd_clr_line(1);
-      //lcd_gotoxy(17,0);
+      lcd_gotoxy(0,2);
       //lcd_puts("twi\0");
+      
       
       // Wert des Passwortes eruieren
       if (find_key_val(str,actionbuf,10,"pw"))					//	Passwort kommt an zweiter Stelle
       {
          urldecode(actionbuf);
          webtaskflag=0;
-         //lcd_puts(actionbuf);
+         lcd_puts(actionbuf);
+         lcd_gotoxy(0,2);
+         lcd_puts("pw da");
          // Passwort kontrollieren
          
          
          if (verify_password(actionbuf))							// Passwort ist OK
          {
+            //lcd_puts(" pw ok");
             //OSZILO;
+            
+            // hostip empfangen
+            {
+               if (find_key_val(str,actionbuf,10,"data0")) // data0 von hostip
+               {
+                  
+                  websrvip[0]=atoi(actionbuf);
+               }
+               if (find_key_val(str,actionbuf,10,"data1")) // data1 von hostip
+               {
+                  websrvip[1]=atoi(actionbuf);
+               }
+               if (find_key_val(str,actionbuf,10,"data2")) // data2 von hostip
+               {
+                  websrvip[2]=atoi(actionbuf);
+               }
+               if (find_key_val(str,actionbuf,10,"data3")) // data3 von hostip
+               {
+                  websrvip[3]=atoi(actionbuf);
+               }
+               
+               
+               return (16);
+            }
+
             if (find_key_val(str,actionbuf,10,"status"))		// Status soll umgeschaltet werden
             {
                return 1;
@@ -788,8 +823,9 @@ uint8_t analyse_get_url(char *str)	// codesnippet von Watchdog
             }
             
             // Auslesen der Daten
-            if (find_key_val(str,actionbuf,10,"data")) // HomeCentral reseten
+            if (find_key_val(str,actionbuf,10,"data0")) // HomeCentral reseten
             {
+               
                if (actionbuf[0]=='0') // data
                {
                   return (25);
@@ -815,6 +851,18 @@ uint16_t print_webpage_ok(uint8_t *buf,uint8_t *okcode)
 	plen=fill_tcp_data_p(buf,plen,PSTR("<p>okcode="));
 	plen=fill_tcp_data(buf,plen,(void*)okcode);	
 	return plen;
+}
+
+uint16_t print_webpage_hostip(uint8_t *buf,uint8_t *okcode)
+{
+   
+   // Schickt den okcode als Bestaetigung fuer den Empfang der hostip
+   uint16_t plen;
+   plen=fill_tcp_data_p(buf,0,PSTR("HTTP/1.0 200 OK\r\nContent-Type: text/html\r\nPragma: no-cache\r\n\r\n"));
+   plen=fill_tcp_data_p(buf,plen,PSTR("<p>okcode="));
+   plen=fill_tcp_data(buf,plen,(void*)okcode);
+   return plen;
+   
 }
 
 
@@ -1062,8 +1110,34 @@ void WDT_off(void)
 
 uint8_t i=0;
 
+/*
+int hostsuchen (int argc, char **argv)
+{
+   struct hostent *he;
+   struct in_addr a;
 
-
+   if (argc != 2)
+   {
+      fprintf(stderr, "usage: %s hostname\n", argv[0]);
+      return 1;
+   }
+   he = gethostbyname (argv[1]);
+   if (he)
+   {
+      printf("name: %s\n", he->h_name);
+      while (*he->h_aliases)
+         printf("alias: %s\n", *he->h_aliases++);
+      while (*he->h_addr_list)
+      {
+         bcopy(*he->h_addr_list++, (char *) &a, sizeof(a));
+         printf("address: %s\n", inet_ntoa(a));
+      }
+   }
+   else
+      herror(argv[0]);
+   return 0;
+}
+*/
 /* ************************************************************************ */
 /* Ende Eigene Funktionen														*/
 /* ************************************************************************ */
@@ -1182,6 +1256,7 @@ int main(void)
 	// init the web client:
 	client_set_gwip(gwip);  // e.g internal IP of dsl router
 	client_set_wwwip(websrvip);
+   
 	register_ping_rec_callback(&ping_callback);
 	
    
@@ -1192,8 +1267,6 @@ int main(void)
    lcd_clr_line(1);
    lcd_gotoxy(0,0);
    lcd_puts("          \0");
-   //OSZIHI;
-   
    InitCurrent();
    timer2();
    
@@ -1540,20 +1613,20 @@ int main(void)
                   strcpy(CurrentDataString,key1);
                   strcat(CurrentDataString,sstr);
                   
-                  strcat(CurrentDataString,"&strom=\0");
+                  strcat(CurrentDataString,"&strom0=\0");
                   char webstromstring[16]={};
                   
                   //      urlencode(stromstring,webstromstring);
                   
                   strcpy(webstromstring,stromstring);
-                  //lcd_gotoxy(0,0);
+                  lcd_gotoxy(0,2);
                   //lcd_puts(stromstring);
                   //lcd_putc('-');
                   //lcd_puts(webstromstring);
                   //lcd_putc('-');
                   
                   char* tempstromstring = (char*)trimwhitespace(webstromstring);
-                  //lcd_puts(tempstromstring);
+                  lcd_puts(tempstromstring);
                   //lcd_putc('$');
                   
                   //strcat(CurrentDataString,stromstring);
@@ -1669,6 +1742,7 @@ int main(void)
             //if (sendWebCount == 2) // StromDaten an HomeServer schicken
             if (webstatus & (1<<DATAOK) )
             {
+               lcd_clr_line(2);
                //OSZILO;
                
                // start_web_client=2;
@@ -1750,11 +1824,14 @@ int main(void)
             
             // out_daten setzen
             cmd=analyse_get_url((char *)&(buf[dat_p+5]));
-            
-            //lcd_gotoxy(5,0);
-            //lcd_puts("cmd:\0");
-            //lcd_putint(cmd);
-            //lcd_putc(' ');
+            lcd_gotoxy(10,1);
+            //OSZIHI;
+            lcd_putint12(MYWWWPORT);
+
+            lcd_gotoxy(0,3);
+            lcd_puts("cmd:*\0");
+            lcd_putint(cmd);
+            lcd_putc('*');
             if (cmd == 1)
             {
                //dat_p = print_webpage_confirm(buf);
@@ -1772,9 +1849,35 @@ int main(void)
                dat_p = print_webpage_data(buf,(void*)CurrentDataString); // pw=Pong&strom=1234
             }
             
+            else if (cmd == 16)	// data0
+            {
+#pragma mark cmd 16
+               
+               lcd_gotoxy(0,2);
+               lcd_putc('*');
+               
+               lcd_putint(websrvip[0]);
+               lcd_putc('.');
+               lcd_putint(websrvip[1]);
+               lcd_putc('.');
+               lcd_putint(websrvip[2]);
+               lcd_putc('.');
+               lcd_putint(websrvip[3]);
+               lcd_putc('*');
+               
+               client_set_wwwip(websrvip);
+               
+               dat_p=http200ok(); // Header setzen
+               dat_p=fill_tcp_data_p(buf,0,PSTR("HTTP/1.0 200 OK\r\nContent-Type: text/html\r\n\r\n<h1>200 OK</h1>"));
+               
+               dat_p = print_webpage_hostip(buf,(void*)"allok");
+               
+            }
+            
+
             else
             {
-               dat_p=fill_tcp_data_p(buf,0,PSTR("HTTP/1.0 401 Unauthorized\r\nContent-Type: text/html\r\n\r\n<h1>401 Zugriff verweigert</h1>"));
+               dat_p=fill_tcp_data_p(buf,0,PSTR("HTTP/1.0 401 Unauthorized\r\nContent-Type: text/html\r\n\r\n<h1>401 Zugriff heute verweigert</h1>"));
             }
             cmd=0;
             // Eingangsdaten reseten, sofern nicht ein Status0-Wait im Gang ist:
